@@ -2,7 +2,7 @@
 from cStringIO import StringIO
 import numpy as np
 import scipy.ndimage as nd
-import PIL.Image
+import cv2
 from IPython.display import clear_output, Image, display
 from google.protobuf import text_format
 import os
@@ -11,16 +11,10 @@ from IPython.core.debugger import Tracer
 import caffe
 caffe.set_mode_cpu()
 
-def showarray(a, fmt='jpeg'):
-    a = np.uint8(np.clip(a, 0, 255))
-    f = StringIO()
-    PIL.Image.fromarray(a).save(f, fmt)
-    display(Image(data=f.getvalue()))
-
-
 # ## Loading DNN model
 net_fn   = os.path.expanduser('~') + '/research/deep_context/proto/dextro_spp_net_deploy.prototxt'
 param_fn = os.path.expanduser('~') + '/research/deep_context/models/dextro_spp_classification.model'
+mean_fn  = os.path.expanduser('~') + '/research/deep_context/data/mean_image.npy'
 
 # Patching model to be able to compute gradients.
 # Note that you can also manually add "force_backward: true" line to "deploy.prototxt".
@@ -29,26 +23,31 @@ text_format.Merge(open(net_fn).read(), model)
 model.force_backward = True
 open('tmp.prototxt', 'w').write(str(model))
 
-net = caffe.Classifier('tmp.prototxt', param_fn,
-                       mean = np.float32([104.0, 116.0, 122.0]), # ImageNet mean, training set dependent
-                       channel_swap = (2,1,0)) # the reference model has channels in BGR order instead of RGB
+net = caffe.Net('tmp.prototxt', param_fn, caffe.TEST)
+mean_image = np.load(mean_fn)
+mean_pixel = mean_image.mean(axis=0).mean(axis=0)
+
+INNER_VIS = False
+OUTER_VIS = False
 
 # a couple of utility functions for converting to and from Caffe's input image layout
-def preprocess(net, img):
-    return np.float32(np.rollaxis(img, 2)[::-1]) - net.transformer.mean['data']
-def deprocess(net, img):
-    return np.dstack((img + net.transformer.mean['data'])[::-1])
+def preprocess(im):
+    return (im - mean_pixel).transpose((2, 0, 1)).astype(float)
 
+def deprocess(caffe_out):
+    return (caffe_out[0].transpose((1, 2, 0)) + mean_pixel).astype('uint8')
 
 ###  Producing dreams
-def make_step(net, step_size=1.5, end='fc7_roi', jitter=32, clip=True):
+def make_step(net, step_size=2.5, end='fc8_dextro_roi', jitter=32, clip=True):
     '''Basic gradient ascent step.'''
 
     src = net.blobs['data'] # input image is stored in Net's 'data' blob
-    dst = net.blobs[end.split('_')[0]]
+    blob_name = end.split('_')
+    blob_name = blob_name[0] + '_' + blob_name[1]
+    dst = net.blobs[blob_name]
 
     ox, oy = np.random.randint(-jitter, jitter+1, 2)
-    src.data[0] = np.roll(np.roll(src.data[0], ox, -1), oy, -2) # apply jitter shift
+    src.data[0] = np.roll(np.roll(src.data[0], ox, axis=-1), oy, axis=-2) # apply jitter shift
             
     #net.forward(end=end)
     net.forward()
@@ -58,17 +57,17 @@ def make_step(net, step_size=1.5, end='fc7_roi', jitter=32, clip=True):
     # apply normalized ascent step to the input image
     src.data[:] += step_size/np.abs(g).mean() * g
 
-    src.data[0] = np.roll(np.roll(src.data[0], -ox, -1), -oy, -2) # unshift image
+    src.data[0] = np.roll(np.roll(src.data[0], -ox, axis=-1), -oy, axis=-2) # unshift image
             
     if clip:
-        bias = net.transformer.mean['data']
-        src.data[:] = np.clip(src.data, -bias, 255-bias)    
-
+        src.data[0, 0, :, :] = np.clip(src.data[0, 0, :, :], -mean_pixel[0], 255-mean_pixel[0])
+        src.data[0, 1, :, :] = np.clip(src.data[0, 1, :, :], -mean_pixel[1], 255-mean_pixel[1])
+        src.data[0, 2, :, :] = np.clip(src.data[0, 2, :, :], -mean_pixel[2], 255-mean_pixel[2])
 
 # Next we implement an ascent through different scales. We call these scales "octaves".
-def deepdream(net, base_img, iter_n=10, octave_n=4, octave_scale=1.4, end='fc7_roi', clip=True, **step_params):
+def deepdream(net, base_img, iter_n=7, octave_n=4, octave_scale=1.4, end='fc8_dextro_roi', clip=True, **step_params):
     # prepare base images for all octaves
-    octaves = [preprocess(net, base_img)]
+    octaves = [preprocess(base_img)]
     for i in xrange(octave_n-1):
         octaves.append(nd.zoom(octaves[-1], (1, 1.0/octave_scale,1.0/octave_scale), order=1))
     
@@ -87,21 +86,73 @@ def deepdream(net, base_img, iter_n=10, octave_n=4, octave_scale=1.4, end='fc7_r
             make_step(net, end=end, clip=clip, **step_params)
             
             # visualization
-            vis = deprocess(net, src.data[0])
-            if not clip: # adjust image contrast if clipping is disabled
-                vis = vis*(255.0/np.percentile(vis, 99.98))
-            showarray(vis)
-            print octave, i, end, vis.shape
+            #Tracer()()
+            if INNER_VIS:
+                vis = deprocess(src.data)
+                if not clip: # adjust image contrast if clipping is disabled
+                    vis = vis*(255.0/np.percentile(vis, 99.98))
+                cv2.imshow('.', vis)
+                cv2.waitKey(10)
+            print octave, i, end, src.data[0].shape
             #clear_output(wait=True)
             
         # extract details produced on the current octave
         detail = src.data[0]-octave_base
     # returning the resulting image
-    return deprocess(net, src.data[0])
+    out = deprocess(src.data)
+    if not clip:
+        out = out*(255.9/np.percentile(out, 99.98))
+    return out
 
+def simple_dream(im):
+    im_d = deepdream(net, im.astype(float))
+    if OUTER_VIS:
+        cv2.imshow('dream', im_d)
+    return im_d
 
-# Now we are ready to let the neural network to reveal its dreams! Let's take a [cloud image](https://commons.wikimedia.org/wiki/File:Appearance_of_sky_for_weather_forecast,_Dhaka,_Bangladesh.JPG) as a starting point:
-img = np.float32(PIL.Image.open('sky1024px.jpg'))
-showarray(img)
-im1 = deepdream(net, img)
-showarray(im1)
+def complex_dream(im):
+    frame = im[:]
+    h, w = frame.shape[:2]
+    s = 0.05 # scale coefficient
+    for i in xrange(10):
+        frame = deepdream(net, frame.astype(float))
+        cv2.imwrite('dream_frames/%04d.jpg'%i, frame)
+        if OUTER_VIS:
+            cv2.imshow('dream', frame)
+        frame = nd.affine_transform(frame, [1-s,1-s,1], [h*s/2,w*s/2,0], order=1)
+    return frame
+
+def video_dream(cap, wri):
+    if not cap.isOpened():
+        print 'Could not open input video'
+        return
+    if not wri.isOpened():
+        print 'Could not open output video'
+        return
+
+    count = 0
+    while True:
+        retval, im = cap.read()
+        if not retval:
+            break
+        print 'Processing frame %d'%count
+        im = cv2.resize(im, (int(im.shape[1]*1.5), int(im.shape[0]*1.5)))
+        im_d = simple_dream(im)
+        count += 1
+        #cv2.imwrite('video_frames/%04d.jpg'%count, im_d)
+        wri.write(im_d)
+
+    cap.release()
+    wri.release()
+        
+#im_filename = 'sky1024px.jpg'
+#im = cv2.imread(im_filename)
+#complex_dream(im)
+
+vid_filename = 'plane_in.mp4'
+cap = cv2.VideoCapture(vid_filename)
+fourcc = cv2.cv.CV_FOURCC('X', 'V', 'I', 'D')
+h = int(1.5 * cap.get(cv2.cv.CV_CAP_PROP_FRAME_HEIGHT))
+w = int(1.5 * cap.get(cv2.cv.CV_CAP_PROP_FRAME_WIDTH))
+wri = cv2.VideoWriter('plane_out.avi', fourcc, 4, (w, h))
+video_dream(cap, wri)

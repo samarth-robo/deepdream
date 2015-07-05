@@ -73,3 +73,6 @@ target/
 ### IPythonNotebook ###
 # Temporary data
 .ipynb_checkpoints/
+
+dream_frames/*
+video_frames/*
