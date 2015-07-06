@@ -114,11 +114,11 @@ def complex_dream(im):
     frame = im[:]
     h, w = frame.shape[:2]
     s = 0.05 # scale coefficient
-    for i in xrange(10):
+    for i in xrange(5):
         frame = deepdream(net, frame.astype(float))
-        cv2.imwrite('dream_frames/%04d.jpg'%i, frame)
         if OUTER_VIS:
             cv2.imshow('dream', frame)
+            cv2.imwrite('dream_frames/%04d.jpg'%i, frame)
         frame = nd.affine_transform(frame, [1-s,1-s,1], [h*s/2,w*s/2,0], order=1)
     return frame
 
@@ -137,7 +137,7 @@ def video_dream(cap, wri):
             break
         print 'Processing frame %d'%count
         im = cv2.resize(im, (int(im.shape[1]*1.5), int(im.shape[0]*1.5)))
-        im_d = simple_dream(im)
+        im_d = complex_dream(im)
         count += 1
         #cv2.imwrite('video_frames/%04d.jpg'%count, im_d)
         wri.write(im_d)
