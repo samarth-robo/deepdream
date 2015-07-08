@@ -65,7 +65,7 @@ def make_step(net, step_size=2.5, end='fc8_dextro_roi', jitter=32, clip=True):
         src.data[0, 2, :, :] = np.clip(src.data[0, 2, :, :], -mean_pixel[2], 255-mean_pixel[2])
 
 # Next we implement an ascent through different scales. We call these scales "octaves".
-def deepdream(net, base_img, iter_n=7, octave_n=4, octave_scale=1.4, end='fc8_dextro_roi', clip=True, **step_params):
+def deepdream(net, base_img, iter_n=10, octave_n=4, octave_scale=1.4, end='fc8_dextro_roi', clip=True, **step_params):
     # prepare base images for all octaves
     octaves = [preprocess(base_img)]
     for i in xrange(octave_n-1):
@@ -139,7 +139,7 @@ def video_dream(cap, wri):
         im = cv2.resize(im, (int(im.shape[1]*1.5), int(im.shape[0]*1.5)))
         im_d = complex_dream(im)
         count += 1
-        #cv2.imwrite('video_frames/%04d.jpg'%count, im_d)
+        cv2.imwrite('video_frames/%04d.jpg'%count, im_d)
         wri.write(im_d)
 
     cap.release()

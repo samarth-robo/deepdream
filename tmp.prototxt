@@ -1,6 +1,6 @@
-name: "DextroCategoriesSPPNet_deploy"
+name: "DextroCategoriesCaffeNet"
 input: "data"
-input_dim: 1
+input_dim: 10
 input_dim: 3
 input_dim: 227
 input_dim: 227
@@ -20,7 +20,6 @@ layer {
   }
   convolution_param {
     num_output: 96
-    pad: 5
     kernel_size: 11
     stride: 4
     weight_filler {
@@ -48,7 +47,6 @@ layer {
     pool: MAX
     kernel_size: 3
     stride: 2
-    pad: 1
   }
 }
 layer {
@@ -105,7 +103,6 @@ layer {
     pool: MAX
     kernel_size: 3
     stride: 2
-    pad: 1
   }
 }
 layer {
@@ -229,25 +226,15 @@ layer {
     pool: MAX
     kernel_size: 3
     stride: 2
-    pad: 1
   }
 }
 layer {
-  name: "roi_pool"
-  type: "SPP"
-  bottom: "pool5"
-  top: "roi_pool"
-  spp_param {
-    pyramid_height: 3
-  }
-}
-layer {
-  name: "fc6_roi"
+  name: "fc6"
   type: "InnerProduct"
-  bottom: "roi_pool"
+  bottom: "pool5"
   top: "fc6"
   param {
-    lr_mult: 10.0
+    lr_mult: 1.0
     decay_mult: 1.0
   }
   param {
@@ -282,12 +269,12 @@ layer {
   }
 }
 layer {
-  name: "fc7_roi"
+  name: "fc7"
   type: "InnerProduct"
   bottom: "fc6"
   top: "fc7"
   param {
-    lr_mult: 10.0
+    lr_mult: 1.0
     decay_mult: 1.0
   }
   param {
@@ -322,7 +309,7 @@ layer {
   }
 }
 layer {
-  name: "fc8_dextro_roi"
+  name: "fc8_dextro"
   type: "InnerProduct"
   bottom: "fc7"
   top: "fc8_dextro"
@@ -335,7 +322,7 @@ layer {
     decay_mult: 0.0
   }
   inner_product_param {
-    num_output: 22
+    num_output: 277
     weight_filler {
       type: "gaussian"
       std: 0.01
