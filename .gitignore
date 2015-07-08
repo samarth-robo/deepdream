@@ -76,3 +76,4 @@ target/
 
 dream_frames/*
 video_frames/*
+*.swp
